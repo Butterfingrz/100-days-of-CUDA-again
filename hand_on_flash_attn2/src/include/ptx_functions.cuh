@@ -6,6 +6,27 @@
 #include <cstdint>
 #include <type_traits>
 
+//  将之前发出的所有未提交的 cp.async 指令归类为一个“组”（Group）
+__device__ void cp_async_commit() {asm volatile("cp.async.commit_group;");}
+
+//  阻塞当前线程，直到未完成的组（Pending Groups）数量降到 ngroups 或更少
+template<int ngroups>      
+__device__ void cp_async_wait() {
+    asm volatile("cp.async.wait_group %0;" ::"n"(ngroups));
+}
+
+//  
+template<int size, typename T>
+__device__ void cp_saync(T *smem_to, T *gmem_from) {
+    static_assert(size == 16);
+
+    uint32_t smem_ptr = __cvta_generate_to_shared(smem_to);
+    // The .cg (cache-global) option bypasses the L1 cache, reducing cache 
+    // pollution and providing a more direct path from L2 to shared memory.
+    asm volatile("cp.async.cg.shared.global [%0], [%1], %2;"
+                 :
+                 : "r"(smem_ptr), "l"(gmem_from), "n"(size););
+}
 
 template <typename value_t>
 void mma_m16n8k16_f32_accum (
